@@ -31,10 +31,30 @@ Skopiuj konfigurację bazy i uzupełnij wartości (plik `.env` w katalogu głów
 
 ```env
 DB_HOST=localhost
-DB_USER=twoj_uzytkownik
+DB_USER=lotto_user
 DB_PASSWORD=twoje_haslo
-DB_DATABASE=nazwa_bazy
+DB_DATABASE=lotto
 ```
+
+### Tworzenie bazy, użytkownika i uprawnień (konsola MySQL)
+
+Po zalogowaniu się do serwera MySQL jako użytkownik z prawem administracyjnym (np. `root`), wykonaj polecenia w konsoli klienta (`mysql -u root -p` lub odpowiednik na Twoim systemie):
+
+```sql
+CREATE DATABASE IF NOT EXISTS lotto
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS 'lotto_user'@'localhost' IDENTIFIED BY 'twoje_bezpieczne_haslo';
+
+GRANT ALL PRIVILEGES ON lotto.* TO 'lotto_user'@'localhost';
+
+FLUSH PRIVILEGES;
+```
+
+Jeśli aplikacja łączy się z MySQL **spod innej maszyny** niż serwer bazy, zamiast `'lotto_user'@'localhost'` użyj np. `'lotto_user'@'%'` (lub konkretnego hosta) i dopasuj reguły zapory oraz `bind-address` w konfiguracji MySQL.
+
+Hasło z `CREATE USER` / `IDENTIFIED BY` musi być **zgodne** z wartością `DB_PASSWORD` w pliku `.env`. Po zmianie hasła u istniejącego użytkownika można użyć: `ALTER USER 'lotto_user'@'localhost' IDENTIFIED BY 'nowe_haslo';`
 
 Tabela `results` tworzy się automatycznie przy pierwszym uruchomieniu (`game_name`, `draw_date`, `numbers_json`, `created_at`, unikat na parze gra + data).
 
