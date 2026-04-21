@@ -12,8 +12,12 @@ async function main(): Promise<void> {
   await ensureResultsTable();
 
   console.log(
-    "Pobieranie wyników z lotto.pl (ładowanie przeglądarki, ewentualnie poczekaj na Cloudflare)...",
+    "Pobieranie wyników z lotto.pl — uruchamiany jest Firefox Camoufox (widoczne okno).",
   );
+  console.log(
+    "Jeśli pojawi się Cloudflare Turnstile: rozwiąż wyzwanie ręcznie w przeglądarce; skrypt poczeka na przejście dalej.",
+  );
+
   const draws = await scrapeLatestDraws();
 
   if (draws.length === 0) {

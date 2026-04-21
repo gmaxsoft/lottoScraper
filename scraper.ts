@@ -1,12 +1,8 @@
 import type { Page, Response } from "playwright";
-import { chromium } from "playwright-extra";
-import StealthPlugin from "puppeteer-extra-plugin-stealth";
+import { Camoufox } from "camoufox-js";
+import { createCursor } from "playwright-ghost-cursor";
 import type { DrawRecord } from "./types.js";
-
-chromium.use(StealthPlugin());
-
-const USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+import { humanMoveAndClick } from "./human-input.js";
 
 /** Nazwy wyświetlane na lotto.pl → klucz kanoniczny */
 export const GAME_LABELS = [
@@ -45,28 +41,123 @@ function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-export async function humanDelay(minMs = 250, maxMs = 900): Promise<void> {
+/** Krótkie opóźnienie między ruchami myszy / scroll — nie zastępuje oczekiwania na sieć */
+async function briefPause(minMs = 120, maxMs = 420): Promise<void> {
   const ms = minMs + Math.floor(Math.random() * (maxMs - minMs));
   await sleep(ms);
 }
 
-async function humanClick(page: Page, selector: string): Promise<boolean> {
-  const loc = page.locator(selector).first();
-  const count = await loc.count();
-  if (!count) return false;
-  await loc.scrollIntoViewIfNeeded().catch(() => {});
-  await humanDelay(120, 450);
-  const box = await loc.boundingBox();
-  if (box) {
-    await page.mouse.move(
-      box.x + box.width / 2 + (Math.random() * 10 - 5),
-      box.y + box.height / 2 + (Math.random() * 10 - 5),
-      { steps: 12 + Math.floor(Math.random() * 10) },
+async function randomIdleMouseAndScroll(page: Page): Promise<void> {
+  const cursor = createCursor(page, undefined, false);
+  const vp = page.viewportSize() ?? { width: 1920, height: 1080 };
+  const passes = 3 + Math.floor(Math.random() * 4);
+
+  for (let i = 0; i < passes; i++) {
+    await cursor.moveTo(
+      {
+        x: 80 + Math.random() * (vp.width - 160),
+        y: 80 + Math.random() * (vp.height - 160),
+      },
+      { moveSpeed: 20 + Math.random() * 40 },
     );
+    await briefPause(200, 600);
+    await cursor.scroll(
+      { x: 0, y: 120 + Math.floor(Math.random() * 280) },
+      { scrollSpeed: 25 + Math.floor(Math.random() * 35), scrollDelay: 280 },
+    );
+    await briefPause(300, 800);
+    await cursor.scroll(
+      { x: 0, y: -(80 + Math.floor(Math.random() * 220)) },
+      { scrollSpeed: 20 + Math.floor(Math.random() * 30), scrollDelay: 220 },
+    );
+    await briefPause(150, 500);
   }
-  await humanDelay(150, 550);
-  await loc.click({ delay: 40 + Math.floor(Math.random() * 90) });
-  return true;
+}
+
+/**
+ * Wykrywa typowe iframe Cloudflare Turnstile.
+ * Jeśli wyzwanie jest widoczne — w komentarzu poniżej: należy je rozwiązać ręcznie w otwartej przeglądarce;
+ * skrypt czeka na zmianę URL albo na zniknięcie iframe (po pomyślnym przejściu strony często zostaje ten sam adres).
+ */
+async function isTurnstileLikeChallengeVisible(page: Page): Promise<boolean> {
+  const selectors = [
+    'iframe[src*="challenges.cloudflare.com"]',
+    'iframe[src*="turnstile"]',
+  ];
+  for (const sel of selectors) {
+    const loc = page.locator(sel).first();
+    if (await loc.isVisible().catch(() => false)) return true;
+  }
+  return false;
+}
+
+async function waitForManualTurnstileResolution(page: Page): Promise<void> {
+  /* RĘCZNA INSTRUKCJA: jeśli widać interaktywne wyzwanie „Potwierdź, że jesteś człowiekiem”
+     (Turnstile) — użytkownik ma je rozwiązać w widocznym oknie Firefox (Camoufox).
+     Skrypt nie obchodzi captcha automatycznie; czeka na zmianę URL lub na brak iframe Turnstile. */
+  if (!(await isTurnstileLikeChallengeVisible(page))) return;
+
+  const initialUrl = page.url();
+  console.warn(
+    "[turnstile] Wykryto iframe typu Cloudflare Turnstile. Rozwiąż wyzwanie ręcznie w przeglądarce — oczekiwanie na zmianę URL lub zniknięcie widgetu…",
+  );
+
+  const urlChanged = page.waitForURL((u) => u.href !== initialUrl, {
+    timeout: 900_000,
+  });
+
+  const iframeGone = page.waitForFunction(
+    () => {
+      const iframes = document.querySelectorAll(
+        'iframe[src*="cloudflare"], iframe[src*="turnstile"]',
+      );
+      return iframes.length === 0;
+    },
+    { timeout: 900_000 },
+  );
+
+  await Promise.race([urlChanged, iframeGone]).catch(() => {});
+
+  await page.waitForLoadState("networkidle", { timeout: 120_000 }).catch(() => {});
+}
+
+async function acceptCookies(page: Page): Promise<void> {
+  const idSelectors = [
+    "#onetrust-accept-btn-handler",
+    'button[id="onetrust-accept-btn-handler"]',
+    "#accept-recommended-btn-handler",
+  ];
+  for (const sel of idSelectors) {
+    try {
+      await page.waitForSelector(sel, { timeout: 8000 });
+      await humanMoveAndClick(page, sel, { waitForSelectorMs: 8000 });
+      await briefPause(400, 900);
+      return;
+    } catch {
+      /* próbuj dalej */
+    }
+  }
+
+  const cursor = createCursor(page, undefined, false);
+  const textButtons = [
+    page.getByRole("button", { name: /zgadzam się/i }),
+    page.getByRole("button", { name: /zaakceptuj wszystkie/i }),
+  ];
+  for (const loc of textButtons) {
+    try {
+      const first = loc.first();
+      if (await first.isVisible({ timeout: 2000 }).catch(() => false)) {
+        await first.scrollIntoViewIfNeeded();
+        await briefPause();
+        const h = await first.elementHandle();
+        if (h) await cursor.click(h);
+        await briefPause(400, 800);
+        return;
+      }
+    } catch {
+      /* następny */
+    }
+  }
 }
 
 function parsePolishDateFragment(text: string): string | null {
@@ -105,7 +196,6 @@ function normalizeNumbers(val: unknown): number[] {
   return [];
 }
 
-/** Rekursywne szukanie obiektów przypominających rekord losowania w JSON z API */
 function extractFromUnknownJson(root: unknown): DrawRecord[] {
   const found: DrawRecord[] = [];
 
@@ -181,9 +271,7 @@ async function tryParseResponseJson(res: Response): Promise<unknown | null> {
   }
 }
 
-/** Heurystyczny parsing bloku tekstu z karty wyniku na stronie */
 function extractFromDomEvaluate(): DrawRecord[] {
-  /* Dłuższe nazwy najpierw — „Lotto” występuje wewnątrz „Mini Lotto”. */
   const labels = [
     "Mini Lotto",
     "Multi Multi",
@@ -242,45 +330,7 @@ function extractFromDomEvaluate(): DrawRecord[] {
   return dedupeRecords(results);
 }
 
-async function acceptCookies(page: Page): Promise<void> {
-  const selectors = [
-    "#onetrust-accept-btn-handler",
-    'button[id="onetrust-accept-btn-handler"]',
-    "#accept-recommended-btn-handler",
-  ];
-  for (const sel of selectors) {
-    try {
-      await page.waitForSelector(sel, { timeout: 8000 });
-      await humanClick(page, sel);
-      await humanDelay(400, 900);
-      return;
-    } catch {
-      /* próbuj dalej */
-    }
-  }
-  const textButtons = [
-    page.getByRole("button", { name: /zgadzam się/i }),
-    page.getByRole("button", { name: /zaakceptuj wszystkie/i }),
-    page.getByText(/zaakceptuj wszystkie/i),
-    page.getByText(/zgadzam się/i),
-  ];
-  for (const loc of textButtons) {
-    try {
-      const first = loc.first();
-      if (await first.isVisible({ timeout: 2000 })) {
-        await first.scrollIntoViewIfNeeded();
-        await humanDelay();
-        await first.click({ delay: 60 });
-        await humanDelay(400, 800);
-        return;
-      }
-    } catch {
-      /* następny */
-    }
-  }
-}
-
-async function waitPastCloudflare(page: Page): Promise<void> {
+async function waitPastCloudflareTitle(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {
       const t = document.title.toLowerCase();
@@ -293,17 +343,20 @@ async function waitPastCloudflare(page: Page): Promise<void> {
 export async function scrapeLatestDraws(): Promise<DrawRecord[]> {
   const capturedJson: unknown[] = [];
 
-  const browser = await chromium.launch({
+  /* Firefox Camoufox — stealth na poziomie silnika (bez Chromium / bez flag typu --disable-blink-features). */
+  const browser = await Camoufox({
     headless: false,
-    args: ["--disable-blink-features=AutomationControlled"],
+    locale: ["pl-PL"],
+    window: [1920, 1080],
+    humanize: true,
+    os: "windows",
   });
 
   try {
     const context = await browser.newContext({
-      userAgent: USER_AGENT,
       locale: "pl-PL",
       timezoneId: "Europe/Warsaw",
-      viewport: { width: 1366, height: 900 },
+      viewport: { width: 1920, height: 1080 },
       deviceScaleFactor: 1,
       hasTouch: false,
       isMobile: false,
@@ -334,14 +387,17 @@ export async function scrapeLatestDraws(): Promise<DrawRecord[]> {
       timeout: 180_000,
     });
 
-    await waitPastCloudflare(page);
-    await humanDelay(600, 1400);
+    await page.waitForLoadState("networkidle", { timeout: 120_000 }).catch(() => {});
+    await waitPastCloudflareTitle(page);
+
+    await waitForManualTurnstileResolution(page);
+
+    await randomIdleMouseAndScroll(page);
 
     await acceptCookies(page);
-    await humanDelay(500, 1100);
 
     await page.waitForLoadState("networkidle", { timeout: 120_000 }).catch(() => {});
-    await humanDelay(800, 1600);
+    await briefPause(400, 900);
 
     let fromApi: DrawRecord[] = [];
     for (const chunk of capturedJson) {

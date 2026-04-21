@@ -1,6 +1,6 @@
 # Lotto Scraper
 
-Skrypt w TypeScript pobiera **ostatnie wyniki wybranych gier liczbowych** ze strony [lotto.pl](https://www.lotto.pl) (przeglądarka Playwright), a następnie zapisuje je w bazie **MySQL**. Duplikaty dla tej samej pary **gra + data losowania** są pomijane.
+Skrypt w TypeScript pobiera **ostatnie wyniki wybranych gier liczbowych** ze strony [lotto.pl](https://www.lotto.pl) (**Firefox Camoufox** przez Playwright), a następnie zapisuje je w bazie **MySQL**. Duplikaty dla tej samej pary **gra + data losowania** są pomijane.
 
 ## Stack technologiczny
 
@@ -8,18 +8,16 @@ Skrypt w TypeScript pobiera **ostatnie wyniki wybranych gier liczbowych** ze str
 |--------|-------------|
 | Język | **TypeScript** (ESM, `module: NodeNext`) |
 | Uruchamianie | **tsx** — bez kompilacji do JS przy `npm start` |
-| Przeglądarka / automatyzacja | **Playwright** (Chromium), **playwright-extra** + **puppeteer-extra-plugin-stealth** (mniejsza widoczność automatyzacji; ochrona przed typowym wykrywaniem „botów”) |
+| Przeglądarka / automatyzacja | **Playwright** + **camoufox-js** (Firefox Camoufox — utwardzony profil na poziomie silnika), **playwright-ghost-cursor** (ruchy myszy), moduł `human-input.ts` z **`humanMoveAndClick()`** (pakiety o nazwie *playwright-human-input* w npm nie ma — używany jest odpowiednik *playwright-ghost-cursor*) |
 | Konfiguracja | **dotenv** — zmienne środowiskowe z pliku `.env` |
 | Lint | **ESLint** + **typescript-eslint** — konfiguracja płaska (`eslint.config.js`) |
 | Baza danych | **mysql2** (pulę połączeń, zapytania parametryzowane) |
 
-Uwaga: pakiet **`playwright-stealth`** w npm jest **placeholderem** bez działającej logiki; faktyczny plugin stealth użyty w projekcie to **puppeteer-extra-plugin-stealth** w połączeniu z **playwright-extra**.
-
 ## Wymagania wstępne
 
-- **Node.js** (LTS zalecany)
+- **Node.js 20+** (wymóg **camoufox-js**)
 - **MySQL** — utworzona baza danych i użytkownik z prawem zapisu
-- Po `npm install` pobierany jest **Chromium** dla Playwright (`postinstall`)
+- Po `npm install` uruchamiane jest **`camoufox-js fetch`** — pobranie binariów Camoufox (chyba że ustawione jest `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, jak w CI)
 
 ## Instalacja
 
@@ -64,12 +62,12 @@ Tabela `results` tworzy się automatycznie przy pierwszym uruchomieniu (`game_na
 npm start
 ```
 
-Skrypt uruchamia Chromium w trybie **widocznym** (`headless: false`), aby ułatwić przejście ewentualnej weryfikacji (np. Cloudflare). W konsoli pojawiają się m.in. wpisy `[baza]` — jakie liczby trafiają do MySQL oraz czy rekord został zapisany, czy pominięty jako duplikat.
+Uruchamiany jest **Camoufox** w trybie **widocznym** (`headless: false`). Przy **Cloudflare Turnstile** (interaktywne „Potwierdź, że jesteś człowiekiem”) rozwiązanie odbywa się **ręcznie** w oknie przeglądarki — skrypt czeka na dalsze ładowanie strony. W konsoli pojawiają się m.in. wpisy `[baza]` — jakie liczby trafiają do MySQL oraz czy rekord został zapisany, czy pominięty jako duplikat.
 
 ### Kompilacja TypeScript (opcjonalnie)
 
 ```bash
-npm run lint        # ESLint — pliki *.ts w katalogu głównym
+npm run lint        # ESLint — pliki `.ts` w projekcie
 npm run typecheck   # sama weryfikacja typów (bez zapisu do dist/)
 npm run build       # kompilacja do katalogu dist/
 ```
@@ -85,11 +83,12 @@ Po każdym pushu lub pull requeście do gałęzi `main` / `master` uruchamiany j
 | Plik | Opis |
 |------|------|
 | `index.ts` | Punkt wejścia — połączenie z bazą, scraping, zapis |
-| `scraper.ts` | Uruchomienie przeglądarki, cookies, zbieranie danych z sieci/DOM |
+| `scraper.ts` | Camoufox, cookies (humanMoveAndClick), Turnstile, zbieranie danych |
+| `human-input.ts` | `humanMoveAndClick` — wrapper na playwright-ghost-cursor |
 | `db.ts` | Pula MySQL, tworzenie tabeli, UPSERT |
 | `types.ts` | Typ rekordu losowania |
 
 ## Uwagi
 
-- Strona lotto.pl może przez chwilę wyświetlać stronę oczekiwania — skrypt czeka na załadowanie treści głównej.
+- Strona lotto.pl może przez chwilę wyświetlać stronę oczekiwania lub **Turnstile** — skrypt używa `networkidle` i oczekuje na przejście dalej (w tym na zmianę URL lub zniknięcie iframe po ręcznym rozwiązaniu wyzwania).
 - Wyniki są mapowane na wybrane gry (m.in. Lotto, Eurojackpot, Mini Lotto, Multi Multi, Kaskada, Ekstra Pensja); przy zmianie HTML/CSS na lotto.pl może być konieczna aktualizacja selektorów w `scraper.ts`.

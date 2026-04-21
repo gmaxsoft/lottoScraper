@@ -3,20 +3,22 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "tsx index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint \"*.ts\"",
-    "postinstall": "playwright install chromium"
+    "lint": "eslint .",
+    "postinstall": "camoufox-js fetch"
   },
   "dependencies": {
+    "camoufox-js": "^0.10.2",
     "dotenv": "^16.4.5",
     "mysql2": "^3.11.0",
     "playwright": "^1.49.0",
-    "playwright-extra": "^4.3.6",
-    "playwright-stealth": "^0.0.1",
-    "puppeteer-extra-plugin-stealth": "^2.11.2"
+    "playwright-ghost-cursor": "^1.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
