@@ -90,5 +90,7 @@ Po każdym pushu lub pull requeście do gałęzi `main` / `master` uruchamiany j
 
 ## Uwagi
 
+- Po **aktualizacji Node.js** komunikat `better-sqlite3` / `NODE_MODULE_VERSION` / `was compiled against a different Node.js version`: uruchom w katalogu projektu **`npm rebuild better-sqlite3`** (albo **`rm -rf node_modules`**, potem **`npm install`**). Pakiet jest używany przez **camoufox-js** (natywny addon musi pasować do ABI Twojej wersji Node).
+- **`LOTTO_SKIP_ENTER_PROMPT=1`** — przy Cloudflare Turnstile skrypt może oczekiwać na **Enter** w terminalu po ręcznym przejściu weryfikacji; ustaw tę zmienną (np. w `.env`), jeśli nie masz interaktywnego terminala lub chcesz tylko pasywne oczekiwanie (bez znaku akceptacji Enterem).
 - Strona lotto.pl może przez chwilę wyświetlać stronę oczekiwania lub **Turnstile** — skrypt używa `networkidle` i oczekuje na przejście dalej (w tym na zmianę URL lub zniknięcie iframe po ręcznym rozwiązaniu wyzwania).
 - Wyniki są mapowane na wybrane gry (m.in. Lotto, Eurojackpot, Mini Lotto, Multi Multi, Kaskada, Ekstra Pensja); przy zmianie HTML/CSS na lotto.pl może być konieczna aktualizacja selektorów w `scraper.ts`.

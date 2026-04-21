@@ -1,8 +1,27 @@
+import { createInterface } from "node:readline";
 import type { Page, Response } from "playwright";
 import { Camoufox } from "camoufox-js";
 import { createCursor } from "playwright-ghost-cursor";
 import type { DrawRecord } from "./types.js";
 import { humanMoveAndClick } from "./human-input.js";
+
+function skipEnterPrompt(): boolean {
+  return process.env.LOTTO_SKIP_ENTER_PROMPT === "1";
+}
+
+/** Gdy jest TTY: po rozwiązaniu weryfikacji użytkownik zatwierdza Enterem, że strona jest gotowa (Cloudflare często nie zmienia URL). */
+function waitForEnterInTerminal(message: string): Promise<void> {
+  if (skipEnterPrompt() || !process.stdin.isTTY || !process.stdout.isTTY) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(message, () => {
+      rl.close();
+      resolve();
+    });
+  });
+}
 
 /** Nazwy wyświetlane na lotto.pl → klucz kanoniczny */
 export const GAME_LABELS = [
@@ -75,48 +94,70 @@ async function randomIdleMouseAndScroll(page: Page): Promise<void> {
 }
 
 /**
- * Wykrywa typowe iframe Cloudflare Turnstile.
- * Jeśli wyzwanie jest widoczne — w komentarzu poniżej: należy je rozwiązać ręcznie w otwartej przeglądarce;
- * skrypt czeka na zmianę URL albo na zniknięcie iframe (po pomyślnym przejściu strony często zostaje ten sam adres).
+ * Cloudflare Turnstile nie da się legalnie „zhackować” z poziomu skryptu — tutaj tylko wykrywanie i czekanie,
+ * aż użytkownik dokończy weryfikację w przeglądarce (ev. Enter w terminalu).
  */
-async function isTurnstileLikeChallengeVisible(page: Page): Promise<boolean> {
-  const selectors = [
+async function isHumanVerificationPresent(page: Page): Promise<boolean> {
+  const iframeSelectors = [
     'iframe[src*="challenges.cloudflare.com"]',
     'iframe[src*="turnstile"]',
+    'iframe[src*="cloudflare"]',
   ];
-  for (const sel of selectors) {
+  for (const sel of iframeSelectors) {
     const loc = page.locator(sel).first();
     if (await loc.isVisible().catch(() => false)) return true;
   }
+
+  const textChecks = [
+    page.getByText(/Potwierdź\s*,?\s*że jesteś człowiekiem/i).first(),
+    page.getByText(/Verify you are human/i).first(),
+    page.locator('[data-testid="challenge-stage"]').first(),
+    page.locator(".cf-turnstile").first(),
+  ];
+  for (const loc of textChecks) {
+    if (await loc.isVisible().catch(() => false)) return true;
+  }
+
   return false;
 }
 
-async function waitForManualTurnstileResolution(page: Page): Promise<void> {
-  /* RĘCZNA INSTRUKCJA: jeśli widać interaktywne wyzwanie „Potwierdź, że jesteś człowiekiem”
-     (Turnstile) — użytkownik ma je rozwiązać w widocznym oknie Firefox (Camoufox).
-     Skrypt nie obchodzi captcha automatycznie; czeka na zmianę URL lub na brak iframe Turnstile. */
-  if (!(await isTurnstileLikeChallengeVisible(page))) return;
-
-  const initialUrl = page.url();
-  console.warn(
-    "[turnstile] Wykryto iframe typu Cloudflare Turnstile. Rozwiąż wyzwanie ręcznie w przeglądarce — oczekiwanie na zmianę URL lub zniknięcie widgetu…",
-  );
-
-  const urlChanged = page.waitForURL((u) => u.href !== initialUrl, {
-    timeout: 900_000,
-  });
-
-  const iframeGone = page.waitForFunction(
+/** W przeglądarce: brak typowego tekstu wyzwania ORAZ brak iframe Turnstile w DOM. */
+async function waitUntilChallengeGoneInPage(page: Page): Promise<void> {
+  await page.waitForFunction(
     () => {
+      const body = document.body?.innerText ?? "";
+      if (/Potwierdź\s*,?\s*że jesteś człowiekiem/i.test(body)) return false;
+      if (/Verify you are human/i.test(body)) return false;
       const iframes = document.querySelectorAll(
-        'iframe[src*="cloudflare"], iframe[src*="turnstile"]',
+        'iframe[src*="challenges.cloudflare"], iframe[src*="turnstile"]',
       );
       return iframes.length === 0;
     },
+    undefined,
     { timeout: 900_000 },
   );
+}
 
-  await Promise.race([urlChanged, iframeGone]).catch(() => {});
+async function waitForManualTurnstileResolution(page: Page): Promise<void> {
+  if (!(await isHumanVerificationPresent(page))) return;
+
+  const initialUrl = page.url();
+  console.warn(
+    "[turnstile] Wykryto Cloudflare (iframe i/lub tekst „Potwierdź, że jesteś człowiekiem”).",
+  );
+  console.warn(
+    "[turnstile] Uzupełnij weryfikację w oknie Firefox (Camoufox). Nie da się tego pominąć skryptem — to ochrona przed botami.",
+  );
+
+  await waitForEnterInTerminal(
+    "→ Gdy w przeglądarce zniknie komunikat i zobaczysz normalną stronę lotto.pl, wróć tutaj i naciśnij Enter, żeby kontynuować.\n" +
+      "   (W CI / bez TTY ten krok jest pomijany; ustaw LOTTO_SKIP_ENTER_PROMPT=1 aby wyłączyć pytanie o Enter.)\n",
+  );
+
+  await Promise.race([
+    page.waitForURL((u) => u.href !== initialUrl, { timeout: 900_000 }),
+    waitUntilChallengeGoneInPage(page),
+  ]).catch(() => {});
 
   await page.waitForLoadState("networkidle", { timeout: 120_000 }).catch(() => {});
 }
@@ -330,12 +371,19 @@ function extractFromDomEvaluate(): DrawRecord[] {
   return dedupeRecords(results);
 }
 
+/** Czeka na zniknięcie typowych tytułów strony pośredniej Cloudflare (Playwright: 3. argument = opcje, nie 2.). */
 async function waitPastCloudflareTitle(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {
       const t = document.title.toLowerCase();
-      return !t.includes("cierpliwości") && !t.includes("just a moment");
+      return (
+        !t.includes("cierpliwości") &&
+        !t.includes("just a moment") &&
+        !t.includes("checking your browser") &&
+        !t.includes("attention required")
+      );
     },
+    undefined,
     { timeout: 180_000 },
   );
 }
@@ -388,9 +436,18 @@ export async function scrapeLatestDraws(): Promise<DrawRecord[]> {
     });
 
     await page.waitForLoadState("networkidle", { timeout: 120_000 }).catch(() => {});
-    await waitPastCloudflareTitle(page);
 
+    /** Turnstile („Potwierdź…”) przed sprawdzaniem samego tytułu — użytkownik może rozwiązać captcha wcześniej. */
     await waitForManualTurnstileResolution(page);
+
+    try {
+      await waitPastCloudflareTitle(page);
+    } catch (e) {
+      console.warn(
+        "[cloudflare] Tytuł strony pośredniej nie zniknął w czasie — kontynuacja (np. inna wersja językowa).",
+        e,
+      );
+    }
 
     await randomIdleMouseAndScroll(page);
 
