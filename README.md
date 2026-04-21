@@ -48,10 +48,15 @@ Skrypt uruchamia Chromium w trybie **widocznym** (`headless: false`), aby ułatw
 ### Kompilacja TypeScript (opcjonalnie)
 
 ```bash
-npm run build
+npm run typecheck   # sama weryfikacja typów (bez zapisu do dist/)
+npm run build       # kompilacja do katalogu dist/
 ```
 
 Pliki JS trafiają do katalogu `dist/` zgodnie z `tsconfig.json`.
+
+### CI (GitHub Actions)
+
+Po każdym pushu lub pull requeście do gałęzi `main` / `master` uruchamiany jest workflow **CI** (`.github/workflows/ci.yml`): instalacja zależności (`npm ci`), `npm run typecheck` oraz `npm run build`. Przeglądarka Playwright **nie jest** pobierana w pipelinie (ustawione `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`).
 
 ## Struktura projektu (skrót)
 

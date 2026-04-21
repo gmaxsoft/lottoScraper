@@ -1,0 +1,35 @@
+# Weryfikacja typów i budowanie projektu przy pushu i pull requestach
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    env:
+      # Same CI nie uruchamia pobierania Chromium (~setki MB); wystarczy sprawdzenie TypeScript.
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+    steps:
+      - name: Pobranie repozytorium
+        uses: actions/checkout@v4
+
+      - name: Konfiguracja Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Instalacja zależności
+        run: npm ci
+
+      - name: Sprawdzenie typów (TypeScript)
+        run: npm run typecheck
+
+      - name: Budowanie projektu
+        run: npm run build

@@ -6,6 +6,7 @@
   "scripts": {
     "start": "tsx index.ts",
     "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "postinstall": "playwright install chromium"
   },
   "dependencies": {
