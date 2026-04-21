@@ -7,6 +7,7 @@
     "start": "tsx index.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint \"*.ts\"",
     "postinstall": "playwright install chromium"
   },
   "dependencies": {
@@ -18,8 +19,11 @@
     "puppeteer-extra-plugin-stealth": "^2.11.2"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.10.0",
+    "eslint": "^10.2.1",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.59.0"
   }
 }

@@ -31,5 +31,8 @@ jobs:
       - name: Sprawdzenie typów (TypeScript)
         run: npm run typecheck
 
+      - name: ESLint
+        run: npm run lint
+
       - name: Budowanie projektu
         run: npm run build
