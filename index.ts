@@ -12,10 +12,10 @@ async function main(): Promise<void> {
   await ensureResultsTable();
 
   console.log(
-    "Pobieranie wyników z lotto.pl — uruchamiany jest Firefox Camoufox (widoczne okno).",
+    "Pobieranie wyników z lotto.pl — hybryda: TLS Chrome 124 (wreq-js) → ciasteczka + UA → Chromium (HEADLESS=false = podgląd okna).",
   );
   console.log(
-    "Jeśli pojawi się Cloudflare Turnstile: rozwiąż wyzwanie ręcznie w przeglądarce; skrypt poczeka na przejście dalej.",
+    "Turnstile w tle: opcjonalnie CAPSOLVER_API_KEY lub TWOCAPTCHA_API_KEY w .env (solver tokena).",
   );
 
   const draws = await scrapeLatestDraws();
